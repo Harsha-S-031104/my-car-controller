@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ESP32 Rover Control (MQTT)</title>
+    <!-- 1. This line includes the necessary MQTT library -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #1a1b1e;
+            --button-bg: #40454c;
+            --button-shadow: #1f2124;
+            --text-color: #e1e3e6;
+            --success-color: #28a745;
+            --error-color: #dc3545;
+            --start-btn-bg: #27ae60;
+            --start-btn-shadow: #1e8449;
+        }
+        body { font-family: 'Roboto', sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        .page { display: none; flex-direction: column; align-items: center; text-align: center; width: 100%; height: 100%; justify-content: center; animation: fadeIn 0.5s ease; box-sizing: border-box; padding: 20px; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .page.active { display: flex; }
+        #home-page { position: relative; overflow: hidden; }
+        #bg-video { position: absolute; top: 50%; left: 50%; width: 100%; height: 100%; object-fit: cover; transform: translate(-50%, -50%); z-index: -2; filter: blur(2px); }
+        .video-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); z-index: -1; }
+        .home-content { position: relative; z-index: 1; background: rgba(0,0,0,0.25); padding: 30px 40px; border-radius: 20px; backdrop-filter: blur(5px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .home-content p { font-size: 1.4em; font-weight: 300; color: #bdc3c7; margin: 0; letter-spacing: 1px; }
+        .home-buttons { margin-top: 40px; }
+        .home-btn { border: none; color: var(--text-color); padding: 20px 40px; font-size: 1.5em; border-radius: 15px; cursor: pointer; transition: all 0.2s ease; margin: 10px; min-width: 200px; -webkit-tap-highlight-color: transparent; }
+        #start-btn { background-color: var(--start-btn-bg); box-shadow: 0 6px 0 var(--start-btn-shadow); }
+        #about-btn { background-color: var(--button-bg); box-shadow: 0 6px 0 var(--button-shadow); }
+        .home-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--button-shadow); }
+        #about-page { max-width: 400px; }
+        #about-page p { line-height: 1.6; font-size: 1.1em; }
+        #back-btn { background-color: #007bff; box-shadow: 0 6px 0 #0056b3; }
+        #status { margin-bottom: 20px; font-size: 1.2em; font-weight: 500; height: 20px; }
+        .d-pad-container { display: grid; grid-template-columns: repeat(3, 90px); grid-template-rows: repeat(3, 90px); gap: 15px; }
+        .control-button { background: linear-gradient(145deg, #4a5057, #3a3f45); border: none; color: var(--text-color); border-radius: 25px; box-shadow: 0 5px 10px var(--button-shadow), inset 0 1px 1px rgba(255,255,255,0.1); cursor: pointer; transition: all 0.1s ease-in-out; user-select: none; -webkit-user-select: none; display: flex; justify-content: center; align-items: center; width: 90px; height: 90px; }
+        .control-button:active { transform: translateY(3px) scale(0.95); }
+        .control-button svg { width: 40px; height: 40px; fill: var(--text-color); pointer-events: none; }
+        #forward-btn { grid-column: 2; grid-row: 1; }
+        #left-btn { grid-column: 1; grid-row: 2; }
+        #stop-btn { grid-column: 2; grid-row: 2; background: linear-gradient(145deg, #d32f3f, #b72835); font-weight: 700; font-size: 1.2em; color: #fff; }
+        #right-btn { grid-column: 3; grid-row: 2; }
+        #backward-btn { grid-column: 2; grid-row: 3; }
+        #controller-back-btn { margin-top: 30px; padding: 15px 30px; font-size: 1.1em; background-color: var(--button-bg); box-shadow: 0 4px 0 var(--button-shadow); border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <div id="home-page" class="page active">
+        <div class="video-overlay"></div>
+        <video id="bg-video" autoplay loop muted playsinline><source src="https://assets.mixkit.co/videos/preview/mixkit-futuristic-circuit-board-and-data-processing-3D-animation-31652-large.mp4" type="video/mp4"></video>
+        <div class="home-content"><h1>ESP32 Rover</h1><p>Internet-Controlled Car</p><div class="home-buttons"><button id="start-btn" class="home-btn">START</button><br><button id="about-btn" class="home-btn">About</button></div></div>
+    </div>
+    <div id="about-page" class="page">
+        <div><h2>About This Project</h2><p>A web controller for an ESP32 Rover using the MQTT protocol with Adafruit IO.</p><button id="back-btn" class="home-btn">Back</button></div>
+    </div>
+    <div id="controller-page" class="page">
+        <div><h2>Rover Control</h2><div id="status">Initializing...</div><div class="d-pad-container"><button id="forward-btn" class="control-button"><svg viewBox="0 0 24 24"><path d="M12 4l8 8h-6v8h-4v-8H4l8-8z"/></svg></button><button id="left-btn" class="control-button"><svg viewBox="0 0 24 24"><path d="M4 12l8 8v-6h8v-4h-8V4l-8 8z"/></svg></button><button id="stop-btn" class="control-button">STOP</button><button id="right-btn" class="control-button"><svg viewBox="0 0 24 24"><path d="M20 12l-8-8v6H4v4h8v6l8-8z"/></svg></button><button id="backward-btn" class="control-button"><svg viewBox="0 0 24 24"><path d="M12 20l-8-8h6V4h4v8h6l-8 8z"/></svg></button></div><button id="controller-back-btn" class="home-btn">Back to Home</button></div>
+    </div>
+    
+    <script>
+        // --- 2. PASTE YOUR ADAFRUIT IO CREDENTIALS HERE ---
+        const AIO_USERNAME = "Harsha_S";
+        const AIO_KEY = "aio_EREl11zzhtIsmfmh32dKLQkUDgM6";
+        const AIO_FEED_KEY = "command";
+        // --------------------------------------------------
+
+        const pages = { home: document.getElementById('home-page'), about: document.getElementById('about-page'), controller: document.getElementById('controller-page') };
+        const bgVideo = document.getElementById('bg-video');
+        let mqttClient;
+        let isMqttInitialized = false;
+
+        const showPage = (pageId) => {
+            Object.values(pages).forEach(page => page.classList.remove('active'));
+            pages[pageId].classList.add('active');
+            if (bgVideo) pageId === 'home' ? bgVideo.play().catch(e => {}) : bgVideo.pause();
+        };
+
+        document.getElementById('start-btn').addEventListener('click', () => { showPage('controller'); if (!isMqttInitialized) initializeMqtt(); });
+        document.getElementById('about-btn').addEventListener('click', () => showPage('about'));
+        document.getElementById('back-btn').addEventListener('click', () => showPage('home'));
+        document.getElementById('controller-back-btn').addEventListener('click', () => { if (mqttClient && mqttClient.connected) sendCommand('S'); showPage('home'); });
+
+        function initializeMqtt() {
+            isMqttInitialized = true;
+            const statusEl = document.getElementById('status');
+            if (AIO_USERNAME === "YOUR_AIO_USERNAME") {
+                statusEl.textContent = "CONFIG MISSING";
+                return;
+            }
+            statusEl.textContent = "Connecting...";
+            const clientId = 'web-' + Math.random().toString(16).substr(2, 8);
+            mqttClient = mqtt.connect('wss://io.adafruit.com', { clientId, username: AIO_USERNAME, password: AIO_KEY });
+
+            mqttClient.on('connect', () => {
+                statusEl.textContent = "Connected";
+                statusEl.style.color = "var(--success-color)";
+            });
+            mqttClient.on('error', (err) => {
+                statusEl.textContent = "Connection Error";
+                statusEl.style.color = "var(--error-color)";
+                console.error("MQTT Error:", err);
+            });
+
+            setupButtonControls();
+        }
+
+        function sendCommand(command) {
+            if (mqttClient && mqttClient.connected) {
+                const commandTopic = `${AIO_USERNAME}/feeds/${AIO_FEED_KEY}`;
+                mqttClient.publish(commandTopic, command);
+            }
+        }
+
+        function setupButtonControls() {
+            const buttons = { 'forward-btn': 'F', 'backward-btn': 'B', 'left-btn': 'L', 'right-btn': 'R' };
+            for (const [id, cmd] of Object.entries(buttons)) {
+                const btn = document.getElementById(id);
+                btn.addEventListener('mousedown', () => sendCommand(cmd));
+                btn.addEventListener('mouseup', () => sendCommand('S'));
+                btn.addEventListener('touchstart', (e) => { e.preventDefault(); sendCommand(cmd); });
+                btn.addEventListener('touchend', (e) => { e.preventDefault(); sendCommand('S'); });
+            }
+            document.getElementById('stop-btn').addEventListener('click', () => sendCommand('S'));
+            window.addEventListener('beforeunload', () => sendCommand('S'));
+        }
+    </script>
+</body>
+</html>
+
